@@ -1,0 +1,9 @@
+const fs=require('node:fs'),path=require('node:path'),asar=require('@electron/asar');
+const version=JSON.parse(fs.readFileSync('package.json')).version,file=path.resolve('release/'+version+'/win-unpacked/resources/app.asar'),files=asar.listPackage(file).map(x=>x.replaceAll('\\','/'));
+for(const required of ['/desktop/main.mjs','/desktop/extraction-jobs.mjs','/ui/citation-check.mjs','/ui/extraction-check-ui.mjs','/desktop/map-assets.mjs','/ui/map-core.mjs','/ui/map-editor.mjs','/ui/map-background.mjs','/ui/map-export.mjs','/ui/map-editor.css','/ui/wall-arrangement.mjs','/ui/review-plan.mjs','/ui/extraction-recovery.mjs','/ui/character-data.js','/ui/character-ui.mjs','/ui/card-policy.mjs','/ui/extraction-plan.mjs','/ui/surfaces.css','/ui/mosaic.css','/ui/ai-workspace.mjs','/ui/providers.mjs','/ui/desktop-bootstrap.mjs','/lib/keeper-api.mjs'])if(!files.includes(required))throw new Error('Release missing '+required);
+if(files.some(x=>/(^|\/)(\.env[^/]*|openai-key\.dat|deepseek-key\.dat|original\.pdf|test-user|\.runtime)(\/|$)/.test(x)))throw new Error('Private file in release');
+const p=JSON.parse(asar.extractFile(file,'package.json'));if(p.version!==version)throw new Error('Unexpected release version');
+if(!asar.extractFile(file,'ui/providers.mjs').toString().includes('https://api.deepseek.com/chat/completions'))throw new Error('DeepSeek not included');
+if(files.some(x=>/\/(scripts|tests|\.runtime)\//.test(x)))throw new Error('Development test code included');
+for(const entry of files.filter(x=>/\.(mjs|cjs|js|css|html)$/.test(x))){if(!asar.extractFile(file,entry.slice(1).replaceAll('/',path.sep)).equals(fs.readFileSync(path.resolve('.'+entry))))throw new Error('Packaged source is stale: '+entry);}
+console.log(JSON.stringify({release:version,requiredFiles:'passed',privateFiles:'excluded',files:files.length}));

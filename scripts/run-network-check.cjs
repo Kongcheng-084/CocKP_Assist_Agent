@@ -1,0 +1,1 @@
+const {spawn}=require('node:child_process'),path=require('node:path');const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;const p=spawn(path.resolve('node_modules/electron/dist/electron.exe'),['scripts/check-openai.mjs'],{env,windowsHide:true,stdio:'inherit'});p.on('exit',code=>process.exitCode=code||0);

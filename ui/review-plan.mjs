@@ -1,0 +1,21 @@
+import {curateCards} from './card-policy.mjs';
+const tokens=v=>Math.ceil(new TextEncoder().encode(JSON.stringify(v)).length/2);
+const cut=(v,n)=>{let s=String(v||'').slice(0,n);return /[\uD800-\uDBFF]$/.test(s)?s.slice(0,-1):s;};
+const contextCard=({source_quotes,...card})=>card;
+export function validReviewStep(step,job){if(step.review_indexes===undefined)return true;return step.stage==='review'&&Array.isArray(job.reviewSnapshot)&&Array.isArray(step.review_indexes)&&step.review_indexes.length<=6&&new Set(step.review_indexes).size===step.review_indexes.length&&step.review_indexes.every(i=>Number.isInteger(i)&&i>=0&&i<job.reviewSnapshot.length)&&job.reviewSnapshot.every(f=>f&&typeof f.title==='string'&&f.title.length<=120&&typeof f.text==='string'&&f.text.length<=600&&Array.isArray(f.source_ids)&&Array.isArray(f.source_quotes)&&f.source_quotes.every(s=>typeof s.block_id==='string'&&typeof s.quote==='string'&&s.quote.length<=360&&job.input.blocks.some(b=>b.block_id===s.block_id&&b.text.includes(s.quote))));}
+export function installReviewPlan(job){
+ if(job.steps.some(s=>s.stage!=='review'&&s.status!=='done')||job.reviewPlanVersion===1||!job.steps.some(s=>s.stage==='review'&&s.status!=='done'))return false;
+ const candidates=job.steps.filter(s=>s.stage!=='overview'&&s.result).flatMap(s=>s.result.facts||[]),decisions=job.steps.filter(s=>s.stage==='review'&&s.status==='done').flatMap(s=>s.result?.decisions||[]);
+ const {facts}=curateCards(candidates,decisions);
+ job.reviewSnapshot=facts.map(f=>{const ids=[...new Set(f.sources.map(s=>s.block_id))],quotes=ids.slice(0,3).map(id=>({block_id:id,quote:cut(f.sources.find(s=>s.block_id===id).quote,360)}));return {category:f.category,title:f.title,text:cut(f.text,600),entity_name:f.entity_name||'',character_type:f.character_type||'unknown',stats:(f.stats||[]).slice(0,10).map(r=>({section:r.section,label:r.label,value:cut(r.value,80)})),source_ids:ids.slice(0,3),source_quotes:quotes,abridged:f.text.length>600||(f.stats||[]).length>10||ids.length>3||(f.stats||[]).some(r=>r.value.length>80)};});
+ const batches=[];let batch=[],size=0;for(const [i,f] of job.reviewSnapshot.entries()){const n=tokens(contextCard(f));if(batch.length&&(batch.length>=6||size+n>3200)){batches.push(batch);batch=[];size=0;}batch.push(i);size+=n;}if(batch.length||!batches.length)batches.push(batch);
+ const plan=batches.map(review_indexes=>({stage:'review',target_ids:[],review_indexes,status:'pending'}));let inserted=false;job.steps=job.steps.flatMap(s=>{if(s.stage!=='review'||s.status==='done')return [s];if(inserted)return [];inserted=true;return plan;});job.reviewPlanVersion=1;return true;
+}
+export function buildReviewInput(job,step){
+ if(!validReviewStep(step,job))throw new Error('复核卡片范围无效。');const cards=step.review_indexes.map(i=>job.reviewSnapshot[i]),context={stage:'review',policy_version:job.policyVersion||1,review_only:true,review_card_count:cards.length,existing_facts:cards.map(contextCard),global_facts:[],issues:[],abridged:cards.some(f=>f.abridged),target_only:false};
+ let budget=0;for(const f of job.reviewSnapshot.filter(f=>f.category==='truth')){const item={category:f.category,title:f.title,text:cut(f.text,120)},n=tokens(item);if(budget+n>1100){context.abridged=true;break;}context.global_facts.push(item);budget+=n;}
+ const blocks=[],seen=new Set(),limit=8500;for(const f of cards)for(const quote of f.source_quotes){if(seen.has(quote.block_id))continue;const original=job.input.blocks.find(b=>b.block_id===quote.block_id);if(!original)continue;let block=original;if(tokens({context,blocks:[...blocks,block]})>limit){context.abridged=true;block={...original,text:quote.quote,source_start:(original.source_start||0)+original.text.indexOf(quote.quote),parse_status:'excerpt'};}if(tokens({context,blocks:[...blocks,block]})>limit){context.abridged=true;continue;}seen.add(block.block_id);blocks.push(block);}
+ if(!blocks.length){const b=job.input.blocks[0];blocks.push({...b,text:cut(b.text,200),parse_status:'excerpt'});seen.add(b.block_id);context.abridged=true;}
+ context.existing_facts=context.existing_facts.map(f=>({...f,source_ids:f.source_ids.filter(id=>seen.has(id)),evidence_abridged:f.source_ids.some(id=>!seen.has(id)||blocks.find(b=>b.block_id===id)?.parse_status==='excerpt')}));
+ return {title:job.input.title,blocks,context,target_block_ids:[]};
+}

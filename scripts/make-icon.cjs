@@ -1,0 +1,5 @@
+const fs=require('node:fs'),zlib=require('node:zlib');const w=128,h=128,pixels=Buffer.alloc((w*4+1)*h);
+for(let y=0;y<h;y++){for(let x=0;x<w;x++){let c=[248,244,238,255];if(x>=14&&x<114&&y>=14&&y<114)c=[225,216,199,255];if(x>=28&&x<60&&y>=34&&y<94)c=[203,175,152,255];if(x>=66&&x<100&&y>=34&&y<60)c=[219,185,164,255];if(x>=66&&x<100&&y>=66&&y<94)c=[237,224,208,255];if(x>=61&&x<64&&y>=31&&y<97)c=[152,127,116,255];const o=y*(w*4+1)+1+x*4;for(let k=0;k<4;k++)pixels[o+k]=c[k];}}
+function crc(b){let c=0xffffffff;for(const x of b){c^=x;for(let j=0;j<8;j++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;}
+function chunk(type,data){const t=Buffer.from(type),head=Buffer.alloc(4),tail=Buffer.alloc(4);head.writeUInt32BE(data.length);tail.writeUInt32BE(crc(Buffer.concat([t,data])));return Buffer.concat([head,t,data,tail]);}
+const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(w,0);ihdr.writeUInt32BE(h,4);ihdr[8]=8;ihdr[9]=6;const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',ihdr),chunk('IDAT',zlib.deflateSync(pixels)),chunk('IEND',Buffer.alloc(0))]);fs.writeFileSync('desktop/icon.png',png);

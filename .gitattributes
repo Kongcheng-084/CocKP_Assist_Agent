@@ -1,0 +1,10 @@
+* text=auto
+*.png binary
+*.jpg binary
+*.ico binary
+*.wasm binary
+*.gz binary
+*.bcmap binary
+*.ttf binary
+*.otf binary
+*.pfb binary
